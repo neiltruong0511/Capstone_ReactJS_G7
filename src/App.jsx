@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Provider } from "react-redux";
 import { store } from "./store/store";
 import AdminLayout from "./Layout/AdminLayout";
-import UserPage from "./pages/admin/UserPage";
+import UserPage from "./pages/Admin/UserPage";
 import CinemaPage from "./pages/CinemaPage";
 import ProfilePage from "./pages/ProfilePage";
 import ProtectedRoute from "./components/ProtectedRoute";
