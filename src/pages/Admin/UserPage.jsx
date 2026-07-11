@@ -1,8 +1,9 @@
-import React, { useState } from "react";
-import { useAddUser, useUsers } from "../../hooks/useUser";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useAddUser, useDeleteUser, useUpdateUser, useUsers } from "../../hooks/useUser";
 import * as Yup from "yup";
 import { useFormik } from "formik";
 import LoadingSpinner from "../../components/LoadingSpinner";
+import ToastMessage from "../../components/ToastMessage";
 
 const addUserSchema = Yup.object().shape({
   taiKhoan: Yup.string().required("Tài khoản không được để trống"),
@@ -17,373 +18,282 @@ const addUserSchema = Yup.object().shape({
   maLoaiNguoiDung: Yup.string().required("Loại người dùng không được để trống"),
 });
 
+const updateUserSchema = Yup.object().shape({
+  taiKhoan: Yup.string().required("Tài khoản không được để trống"),
+  matKhau: Yup.string().min(6, "Mật khẩu phải có ít nhất 6 ký tự"),
+  email: Yup.string().email("Email không hợp lệ").required("Email không được để trống"),
+  soDt: Yup.string().required("Số điện thoại không được để trống"),
+  hoTen: Yup.string().required("Họ tên không được để trống"),
+  maLoaiNguoiDung: Yup.string().required("Loại người dùng không được để trống"),
+});
+
 const UserPage = () => {
-  // BƯỚC 1: Lưu trang hiện tại vào state, mặc định là trang 1
-  // Mỗi khi currentPage thay đổi → React re-render → useUsers gọi lại API trang mới
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [toast, setToast] = useState({ visible: false, message: "", type: "success" });
+  const toastTimer = useRef(null);
+  const PAGE_SIZE = 8;
 
-  // Số người dùng hiển thị trên mỗi trang (cố định là 10)
-  const PAGE_SIZE = 10;
-
-  // BƯỚC 2: Gọi hook useUsers, truyền vào trang hiện tại và số phần tử mỗi trang
-  // Hook này sẽ gọi API: /LayDanhSachNguoiDungPhanTrang?MaNhom=GP01&soTrang=1&soPhanTuTrenTrang=10
-  // Khi currentPage thay đổi → queryKey thay đổi → TanStack Query tự động gọi lại API
   const { data, isLoading } = useUsers(currentPage, PAGE_SIZE);
-
-  // BƯỚC 3: Lấy dữ liệu từ response API trả về
-  // data.items       = mảng người dùng của trang hiện tại (tối đa 10 người)
-  // data.totalPages  = tổng số trang (ví dụ: 120 người / 10 = 12 trang)
-  // data.totalCount  = tổng số người dùng trong hệ thống (ví dụ: 120)
-  const users = data?.items || []; // nếu chưa có data thì dùng mảng rỗng
-  const totalPages = data?.totalPages || 1; // nếu chưa có data thì mặc định 1 trang
-  const totalCount = data?.totalCount || 0; // nếu chưa có data thì mặc định 0
+  const users = data?.items || [];
+  const totalPages = data?.totalPages || 1;
+  const totalCount = data?.totalCount || 0;
 
   const addUser = useAddUser();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const updateUser = useUpdateUser();
+  const deleteUser = useDeleteUser();
+
+  const filteredUsers = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    if (!keyword) return users;
+    return users.filter((user) => {
+      const haystack = `${user.taiKhoan || ""} ${user.hoTen || ""} ${user.email || ""}`.toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [users, searchTerm]);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) {
+        clearTimeout(toastTimer.current);
+      }
+    };
+  }, []);
+
+  const showToast = (message, type = "success") => {
+    setToast({ visible: true, message, type });
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+    toastTimer.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, visible: false }));
+    }, 3000);
+  };
 
   const formik = useFormik({
     initialValues: {
-      taiKhoan: "",
+      taiKhoan: selectedUser?.taiKhoan || "",
       matKhau: "",
-      email: "",
-      soDt: "",
-      hoTen: "",
-      maLoaiNguoiDung: "KhachHang",
+      email: selectedUser?.email || "",
+      soDt: selectedUser?.soDT || "",
+      hoTen: selectedUser?.hoTen || "",
+      maLoaiNguoiDung: selectedUser?.maLoaiNguoiDung || "KhachHang",
       maNhom: "GP01",
     },
-    validationSchema: addUserSchema,
+    enableReinitialize: true,
+    validationSchema: selectedUser ? updateUserSchema : addUserSchema,
     onSubmit: async (values, { resetForm }) => {
-      // reset form sau khi submit thành công
       try {
-        await addUser.mutateAsync(values);
+        const payload = {
+          taiKhoan: values.taiKhoan,
+          email: values.email,
+          soDt: values.soDt,
+          hoTen: values.hoTen,
+          maLoaiNguoiDung: values.maLoaiNguoiDung,
+          maNhom: "GP01",
+        };
+
+        if (values.matKhau) {
+          payload.matKhau = values.matKhau;
+        }
+
+        if (selectedUser) {
+          await updateUser.mutateAsync(payload);
+          showToast("Cập nhật người dùng thành công", "success");
+        } else {
+          payload.matKhau = values.matKhau;
+          await addUser.mutateAsync(payload);
+          showToast("Thêm người dùng thành công", "success");
+        }
+
         resetForm();
+        setSelectedUser(null);
         setIsModalOpen(false);
       } catch (error) {
-        console.log(error);
+        console.error(error);
+        showToast(`Thao tác thất bại: ${error?.response?.data?.message || error.message}`, "error");
       }
     },
   });
 
   const handleCloseModal = () => {
     formik.resetForm();
+    setSelectedUser(null);
     setIsModalOpen(false);
   };
 
+  const handleEditUser = (user) => {
+    setSelectedUser(user);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteUser = async (user) => {
+    if (!window.confirm(`Bạn có chắc muốn xóa người dùng "${user.hoTen || user.taiKhoan}"?`)) {
+      return;
+    }
+
+    try {
+      await deleteUser.mutateAsync(user.taiKhoan);
+      showToast("Xóa người dùng thành công", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(`Xóa người dùng thất bại: ${error?.response?.data?.message || error.message}`, "error");
+    }
+  };
+
   return (
-    <div>
+    <div className="space-y-6">
+      <ToastMessage visible={toast.visible} type={toast.type} message={toast.message} />
       {isLoading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-gray-950/70 z-50">
+        <div className="fixed inset-0 flex items-center justify-center bg-slate-950/70 z-50">
           <LoadingSpinner />
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-white text-2xl font-bold">
-            Danh sách người dùng
-          </h2>
-          <p className="text-gray-400 text-sm mt-1">
-            Trang{" "}
-            <span className="text-yellow-400 font-medium">{currentPage}</span> /{" "}
-            {totalPages} — Tổng{" "}
-            <span className="text-yellow-400 font-medium">{totalCount}</span>{" "}
-            người dùng
-          </p>
-        </div>
-        <div className="relative w-72">
-          <input
-            type="text"
-            placeholder="Tìm theo tên, tài khoản, email..."
-            className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-xl px-4 py-2.5 pr-10 outline-none focus:ring-2 focus:ring-yellow-400 text-sm transition-all"
-          />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-            🔍
-          </span>
-        </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-yellow-400 hover:bg-yellow-500 text-gray-900 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-        >
-          Thêm người dùng
-        </button>
-      </div>
-      <div className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 bg-gray-800/50">
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  #
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Tài khoản
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Họ tên
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Email
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Số điện thoại
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Loại tài khoản
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Hành động
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {users.map((user, index) => (
-                <tr
-                  key={user.taiKhoan}
-                  className="hover:bg-gray-800/50 transition-colors group"
-                >
-                  <td className="px-5 py-4 text-gray-500">{index + 1}</td>
-                  <td className="px-5 py-4">
-                    <span className="text-white font-medium">
-                      {user.taiKhoan}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-yellow-400/20 border border-yellow-400/30 flex items-center justify-center text-yellow-400 font-bold text-xs flex-shrink-0">
-                        {user.hoTen?.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-white">{user.hoTen}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-gray-300">{user.email}</td>
-                  <td className="px-5 py-4 text-gray-300">{user.soDT}</td>
-                  <td className="px-5 py-4">
-                    {user.maLoaiNguoiDung === "KhachHang" ? (
-                      <span className="bg-gray-800/50 text-gray-400 border border-gray-700/30 text-xs font-medium px-2.5 py-1 rounded-full">
-                        Khách hàng
-                      </span>
-                    ) : (
-                      <span className="bg-yellow-400/15 text-yellow-400 border border-yellow-400/30 text-xs font-medium px-2.5 py-1 rounded-full">
-                        Quản trị
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
-                        Sửa
-                      </button>
-                      <button className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
-                        Xóa
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {/* Phân trang */}
-      <div className="flex items-center justify-center gap-2 mt-6">
-        {/* 
-    Previous button
-    - Khi click sẽ giảm currentPage đi 1.
-    - Nút sẽ bị disable nếu đang ở trang đầu tiên (currentPage === 1)
-      để tránh chuyển sang trang không tồn tại.
-  */}
-        <button
-          onClick={() => setCurrentPage((p) => p - 1)}
-          disabled={currentPage === 1}
-          className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
-        >
-          ← Trước
-        </button>
+      <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-[0.3em] text-amber-400">Quản lý người dùng</p>
+            <h2 className="mt-2 text-3xl font-semibold text-white">Danh sách người dùng</h2>
+            <p className="mt-2 text-sm text-slate-400">Theo dõi tài khoản khách hàng và quản trị viên cùng lúc.</p>
+          </div>
 
-        {/*
-    Generate page number buttons.
-    - Array.from({ length: totalPages }) tạo ra một mảng có số phần tử
-      bằng tổng số trang.
-    - (_, i) => i + 1 chuyển index (0,1,2,...) thành số trang (1,2,3,...).
-    - map() dùng để render một button cho mỗi trang.
-  */}
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative w-full md:w-80">
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                type="text"
+                placeholder="Tìm theo tên, tài khoản, email..."
+                className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2.5 pr-10 text-sm text-white outline-none transition focus:border-amber-400"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
+            </div>
+            <button onClick={() => setIsModalOpen(true)} className="rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:brightness-110">
+              + Thêm người dùng
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-sm text-slate-400">Tổng tài khoản</p>
+            <p className="mt-2 text-2xl font-semibold text-white">{totalCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-sm text-slate-400">Phân loại</p>
+            <p className="mt-2 text-2xl font-semibold text-amber-400">{users.filter((user) => user.maLoaiNguoiDung !== "KhachHang").length} quản trị</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        {filteredUsers.length > 0 ? (
+          filteredUsers.map((user) => (
+            <div key={user.taiKhoan} className="rounded-3xl border border-slate-800 bg-slate-950/70 p-4 shadow-lg shadow-slate-950/30">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 text-sm font-semibold text-amber-300">
+                    {user.hoTen?.charAt(0).toUpperCase() || "U"}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{user.hoTen || user.taiKhoan}</h3>
+                    <p className="text-sm text-slate-400">{user.taiKhoan}</p>
+                  </div>
+                </div>
+                {user.maLoaiNguoiDung === "KhachHang" ? (
+                  <span className="rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-xs font-medium text-slate-300">Khách hàng</span>
+                ) : (
+                  <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-300">Quản trị</span>
+                )}
+              </div>
+
+              <div className="mt-4 space-y-2 text-sm text-slate-400">
+                <p>📧 {user.email || "Chưa cập nhật"}</p>
+                <p>📱 {user.soDT || "Chưa cập nhật"}</p>
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <button onClick={() => handleEditUser(user)} className="rounded-xl bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700">Sửa</button>
+                <button onClick={() => handleDeleteUser(user)} className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-700">Xóa</button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-3xl border border-dashed border-slate-800 bg-slate-950/50 p-8 text-center text-slate-400 xl:col-span-2">
+            Không tìm thấy người dùng phù hợp.
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-center gap-2">
+        <button onClick={() => setCurrentPage((p) => p - 1)} disabled={currentPage === 1} className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">← Trước</button>
         {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-          <button
-            key={page}
-            onClick={() => setCurrentPage(page)}
-            /*
-              Highlight trang hiện tại.
-              - Nếu page === currentPage:
-                  + Đổi màu nền để người dùng biết đang ở trang nào.
-              - Ngược lại:
-                  + Hiển thị màu mặc định và hiệu ứng hover.
-            */
-            className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-              page === currentPage
-                ? "bg-yellow-400 text-gray-900"
-                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-            }`}
-          >
+          <button key={page} onClick={() => setCurrentPage(page)} className={`h-9 w-9 rounded-xl text-sm font-medium transition ${page === currentPage ? "bg-amber-400 text-slate-950" : "bg-slate-900 text-slate-300 hover:bg-slate-800"}`}>
             {page}
           </button>
         ))}
-
-        {/*
-    Next button
-    - Khi click sẽ tăng currentPage lên 1.
-    - Disable khi đã ở trang cuối (currentPage === totalPages)
-      để tránh vượt quá số trang.
-  */}
-        <button
-          onClick={() => setCurrentPage((p) => p + 1)}
-          disabled={currentPage === totalPages}
-          className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
-        >
-          Sau →
-        </button>
+        <button onClick={() => setCurrentPage((p) => p + 1)} disabled={currentPage === totalPages} className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40">Sau →</button>
       </div>
 
-      {/* modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-lg shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800">
-              <h3 className="text-white text-lg font-bold">
-                Thêm người dùng mới
-              </h3>
-              <button
-                onClick={handleCloseModal}
-                className="text-gray-500 hover:text-white transition-colors text-xl leading-none"
-              >
-                ×
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4">
+          <div className="w-full max-w-lg rounded-3xl border border-slate-800 bg-slate-950 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 px-6 py-5">
+              <div>
+                <h3 className="text-lg font-semibold text-white">{selectedUser ? "Chỉnh sửa người dùng" : "Thêm người dùng mới"}</h3>
+                <p className="text-sm text-slate-400">{selectedUser ? "Cập nhật thông tin tài khoản." : "Tạo tài khoản mới cho hệ thống."}</p>
+              </div>
+              <button onClick={handleCloseModal} className="text-xl text-slate-400 transition hover:text-white">×</button>
             </div>
 
-            <form
-              onSubmit={formik.handleSubmit}
-              className="px-6 py-5 space-y-4"
-            >
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={formik.handleSubmit} className="space-y-4 px-6 py-5">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Tài khoản
-                  </label>
-                  <input
-                    type="text"
-                    {...formik.getFieldProps("taiKhoan")}
-                    placeholder="Nhập tài khoản"
-                    className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.taiKhoan && formik.errors.taiKhoan && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.taiKhoan}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Tài khoản</label>
+                  <input type="text" {...formik.getFieldProps("taiKhoan")} disabled={Boolean(selectedUser)} placeholder="Nhập tài khoản" className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400 disabled:cursor-not-allowed disabled:bg-slate-800" />
+                  {formik.touched.taiKhoan && formik.errors.taiKhoan && <p className="mt-1 text-xs text-rose-400">{formik.errors.taiKhoan}</p>}
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Mật khẩu
-                  </label>
-                  <input
-                    type="password"
-                    {...formik.getFieldProps("matKhau")}
-                    placeholder="••••••••"
-                    className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.matKhau && formik.errors.matKhau && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.matKhau}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Mật khẩu</label>
+                  <input type="password" {...formik.getFieldProps("matKhau")} placeholder={selectedUser ? "Để trống nếu không đổi" : "••••••••"} className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                  {formik.touched.matKhau && formik.errors.matKhau && <p className="mt-1 text-xs text-rose-400">{formik.errors.matKhau}</p>}
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                  Họ tên
-                </label>
-                <input
-                  type="text"
-                  {...formik.getFieldProps("hoTen")}
-                  placeholder="Nhập họ tên"
-                  className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                />
-                {formik.touched.hoTen && formik.errors.hoTen && (
-                  <p className="text-red-500 text-xs mt-1">
-                    {formik.errors.hoTen}
-                  </p>
-                )}
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Họ tên</label>
+                <input type="text" {...formik.getFieldProps("hoTen")} placeholder="Nhập họ tên" className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                {formik.touched.hoTen && formik.errors.hoTen && <p className="mt-1 text-xs text-rose-400">{formik.errors.hoTen}</p>}
               </div>
 
               <div>
-                <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  {...formik.getFieldProps("email")}
-                  placeholder="example@email.com"
-                  className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                />
-                {formik.touched.email && formik.errors.email && (
-                  <p className="text-red-500 text-xs mt-1">
-                    {formik.errors.email}
-                  </p>
-                )}
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Email</label>
+                <input type="email" {...formik.getFieldProps("email")} placeholder="example@email.com" className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                {formik.touched.email && formik.errors.email && <p className="mt-1 text-xs text-rose-400">{formik.errors.email}</p>}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Số điện thoại
-                  </label>
-                  <input
-                    type="text"
-                    {...formik.getFieldProps("soDt")}
-                    placeholder="0901234567"
-                    className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.soDt && formik.errors.soDt && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.soDt}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Số điện thoại</label>
+                  <input type="text" {...formik.getFieldProps("soDt")} placeholder="0901234567" className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                  {formik.touched.soDt && formik.errors.soDt && <p className="mt-1 text-xs text-rose-400">{formik.errors.soDt}</p>}
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Loại tài khoản
-                  </label>
-                  <select
-                    {...formik.getFieldProps("maLoaiNguoiDung")}
-                    className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  >
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Loại tài khoản</label>
+                  <select {...formik.getFieldProps("maLoaiNguoiDung")} className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400">
                     <option value="KhachHang">Khách hàng</option>
                     <option value="QuanTri">Quản trị</option>
                   </select>
-                  {formik.touched.maLoaiNguoiDung &&
-                    formik.errors.maLoaiNguoiDung && (
-                      <p className="text-red-500 text-xs mt-1">
-                        {formik.errors.maLoaiNguoiDung}
-                      </p>
-                    )}
+                  {formik.touched.maLoaiNguoiDung && formik.errors.maLoaiNguoiDung && <p className="mt-1 text-xs text-rose-400">{formik.errors.maLoaiNguoiDung}</p>}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 transition-colors"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={!formik.isValid}
-                  className="bg-yellow-400 hover:bg-yellow-500 disabled:bg-yellow-700 text-gray-900 font-bold px-5 py-2.5 rounded-xl text-sm transition-colors flex items-center gap-2"
-                >
-                  Thêm người dùng
-                </button>
+              <div className="flex justify-end gap-3 border-t border-slate-800 pt-4">
+                <button type="button" onClick={handleCloseModal} className="rounded-2xl border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-white">Hủy</button>
+                <button type="submit" disabled={!formik.isValid} className="rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:cursor-not-allowed disabled:brightness-75">{selectedUser ? "Cập nhật" : "Thêm người dùng"}</button>
               </div>
             </form>
           </div>
