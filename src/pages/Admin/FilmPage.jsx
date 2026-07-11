@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useMovieListPhanTrang, useAddMovie, useDeleteMovie } from "../../hooks/useMovies";
 import * as Yup from "yup";
 import { useFormik } from "formik";
 import LoadingSpinner from "../../components/LoadingSpinner";
+import ToastMessage from "../../components/ToastMessage";
 
-// Validation schema cho thêm phim
 const addMovieSchema = Yup.object().shape({
   tenPhim: Yup.string().required("Tên phim không được để trống"),
   biDanh: Yup.string().required("Bí danh không được để trống"),
@@ -22,25 +23,35 @@ const addMovieSchema = Yup.object().shape({
 });
 
 const FilmPage = () => {
-  // BƯỚC 1: Lưu trang hiện tại vào state
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState("");
+  const PAGE_SIZE = 8;
 
-  // Số phim hiển thị trên mỗi trang
-  const PAGE_SIZE = 10;
-
-  // BƯỚC 2: Gọi hook useMovieListPhanTrang
   const { data, isLoading } = useMovieListPhanTrang(currentPage, PAGE_SIZE);
-
-  // BƯỚC 3: Lấy dữ liệu từ response API
   const movies = data?.items || [];
   const totalPages = data?.totalPages || 1;
   const totalCount = data?.totalCount || 0;
 
+  const navigate = useNavigate();
   const addMovie = useAddMovie();
   const deleteMovie = useDeleteMovie();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
+  const [toast, setToast] = useState({ visible: false, message: "", type: "success" });
+  const toastTimer = useRef(null);
+
+  const filteredMovies = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    if (!keyword) return movies;
+    return movies.filter((movie) => movie.tenPhim?.toLowerCase().includes(keyword));
+  }, [movies, searchTerm]);
+
+  const stats = useMemo(() => {
+    const hotCount = movies.filter((movie) => movie.hot).length;
+    const upcomingCount = movies.filter((movie) => movie.sapChieu).length;
+    return { hotCount, upcomingCount };
+  }, [movies]);
 
   const formik = useFormik({
     initialValues: {
@@ -57,7 +68,6 @@ const FilmPage = () => {
     validationSchema: addMovieSchema,
     onSubmit: async (values, { resetForm }) => {
       try {
-        // Tạo FormData để upload file hình ảnh
         const formData = new FormData();
         formData.append("tenPhim", values.tenPhim);
         formData.append("biDanh", values.biDanh);
@@ -68,7 +78,6 @@ const FilmPage = () => {
         formData.append("hot", values.hot);
         formData.append("sapChieu", values.sapChieu);
 
-        // Thêm file hình ảnh nếu có
         if (selectedImage) {
           formData.append("hinhAnh", selectedImage);
         }
@@ -105,170 +114,177 @@ const FilmPage = () => {
     }
   };
 
-  const handleDeleteMovie = async (maPhim, tenPhim) => {
-    if (window.confirm(`Bạn có chắc muốn xóa phim "${tenPhim}"?`)) {
-      try {
-        await deleteMovie.mutateAsync(maPhim);
-        alert("Xóa phim thành công!");
-      } catch (error) {
-        console.log(error);
-        alert("Xóa phim thất bại: " + (error?.response?.data?.message || error.message));
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) {
+        clearTimeout(toastTimer.current);
       }
+    }
+  }, [])
+
+  const showToast = (message, type = "success") => {
+    setToast({ visible: true, message, type });
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+    toastTimer.current = setTimeout(() => {
+      setToast((prev) => ({ ...prev, visible: false }));
+    }, 3000);
+  };
+
+  const handleDeleteMovie = async (maPhim, tenPhim) => {
+    if (!window.confirm(`Bạn có chắc muốn xóa phim "${tenPhim}"?`)) {
+      return;
+    }
+
+    try {
+      await deleteMovie.mutateAsync(maPhim);
+      showToast("Xóa phim thành công", "success");
+    } catch (error) {
+      console.log(error);
+      showToast(`Xóa phim thất bại: ${error?.response?.data?.message || error.message}`, "error");
     }
   };
 
   return (
-    <div>
+    <div className="space-y-6">
+      <ToastMessage visible={toast.visible} type={toast.type} message={toast.message} />
       {isLoading && (
-        <div className="fixed inset-0 flex items-center justify-center bg-gray-950/70 z-50">
+        <div className="fixed inset-0 flex items-center justify-center bg-slate-950/70 z-50">
           <LoadingSpinner />
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-white text-2xl font-bold">
-            Danh sách phim
-          </h2>
-          <p className="text-gray-400 text-sm mt-1">
-            Trang{" "}
-            <span className="text-yellow-400 font-medium">{currentPage}</span> /{" "}
-            {totalPages} — Tổng{" "}
-            <span className="text-yellow-400 font-medium">{totalCount}</span>{" "}
-            phim
-          </p>
-        </div>
-        <div className="relative w-72">
-          <input
-            type="text"
-            placeholder="Tìm theo tên phim..."
-            className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-xl px-4 py-2.5 pr-10 outline-none focus:ring-2 focus:ring-yellow-400 text-sm transition-all"
-          />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-            🔍
-          </span>
-        </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-yellow-400 hover:bg-yellow-500 text-gray-900 text-sm font-medium px-4 py-2.5 rounded-lg transition-colors"
-        >
-          Thêm phim
-        </button>
-      </div>
+      <div className="rounded-3xl border border-slate-800 bg-slate-950/70 p-6 shadow-2xl shadow-slate-950/40">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-[0.3em] text-amber-400">Quản lý phim</p>
+            <h2 className="mt-2 text-3xl font-semibold text-white">Danh sách phim</h2>
+            <p className="mt-2 max-w-2xl text-sm text-slate-400">
+              Theo dõi, cập nhật và quản lý nội dung phim một cách trực quan hơn.
+            </p>
+          </div>
 
-      {/* Bảng danh sách phim */}
-      <div className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-800 bg-gray-800/50">
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  #
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Tên phim
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Bí danh
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Ngày khởi chiếu
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Đánh giá
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Trạng thái
-                </th>
-                <th className="text-left text-gray-400 font-medium px-5 py-4 whitespace-nowrap">
-                  Hành động
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-800">
-              {movies.map((movie, index) => (
-                <tr
-                  key={movie.maPhim}
-                  className="hover:bg-gray-800/50 transition-colors group"
-                >
-                  <td className="px-5 py-4 text-gray-500">
-                    {(currentPage - 1) * PAGE_SIZE + index + 1}
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      {movie.hinhAnh && (
-                        <div className="w-10 h-14 rounded overflow-hidden bg-gray-800 flex-shrink-0">
-                          <img
-                            src={movie.hinhAnh}
-                            alt={movie.tenPhim}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      )}
-                      <span className="text-white font-medium max-w-xs truncate">
-                        {movie.tenPhim}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 text-gray-300 truncate">
-                    {movie.biDanh}
-                  </td>
-                  <td className="px-5 py-4 text-gray-300">
-                    {new Date(movie.ngayKhoiChieu).toLocaleDateString("vi-VN")}
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-1">
-                      <span className="text-yellow-400 font-bold">
-                        {movie.danhGia}
-                      </span>
-                      <span className="text-yellow-400">⭐</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex gap-2">
-                      {movie.hot && (
-                        <span className="bg-red-500/15 text-red-400 border border-red-400/30 text-xs font-medium px-2.5 py-1 rounded-full">
-                          Hot
-                        </span>
-                      )}
-                      {movie.sapChieu && (
-                        <span className="bg-blue-500/15 text-blue-400 border border-blue-400/30 text-xs font-medium px-2.5 py-1 rounded-full">
-                          Sắp chiếu
-                        </span>
-                      )}
-                      {!movie.hot && !movie.sapChieu && (
-                        <span className="bg-gray-800/50 text-gray-400 border border-gray-700/30 text-xs font-medium px-2.5 py-1 rounded-full">
-                          Thường
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors">
-                        Sửa
-                      </button>
-                      <button
-                        onClick={() => handleDeleteMovie(movie.maPhim, movie.tenPhim)}
-                        className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-                      >
-                        Xóa
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative w-full md:w-72">
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                type="text"
+                placeholder="Tìm theo tên phim..."
+                className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-4 py-2.5 pr-10 text-sm text-white outline-none transition focus:border-amber-400"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
+            </div>
+            <button
+              onClick={() => navigate("/admin/films/addnew")}
+              className="rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:brightness-110"
+            >
+              + Thêm phim
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-sm text-slate-400">Tổng phim</p>
+            <p className="mt-2 text-2xl font-semibold text-white">{totalCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-sm text-slate-400">Phim hot</p>
+            <p className="mt-2 text-2xl font-semibold text-rose-400">{stats.hotCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+            <p className="text-sm text-slate-400">Sắp chiếu</p>
+            <p className="mt-2 text-2xl font-semibold text-sky-400">{stats.upcomingCount}</p>
+          </div>
         </div>
       </div>
 
-      {/* Phân trang */}
-      <div className="flex items-center justify-center gap-2 mt-6">
+      <div className="grid gap-4 xl:grid-cols-2">
+        {filteredMovies.length > 0 ? (
+          filteredMovies.map((movie) => (
+            <div key={movie.maPhim} className="group rounded-3xl border border-slate-800 bg-slate-950/70 p-4 shadow-lg shadow-slate-950/30 transition hover:-translate-y-1 hover:border-amber-400/50">
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="h-40 w-full shrink-0 overflow-hidden rounded-2xl bg-slate-900 sm:w-28">
+                  <img src={movie.hinhAnh} alt={movie.tenPhim} className="h-full w-full object-cover" />
+                </div>
+
+                <div className="flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-white">{movie.tenPhim}</h3>
+                      <p className="mt-1 text-sm text-slate-400">{movie.biDanh}</p>
+                    </div>
+                    <div className="rounded-full border border-amber-400/30 bg-amber-400/10 px-3 py-1 text-sm font-semibold text-amber-300">
+                      {movie.danhGia}/10
+                    </div>
+                  </div>
+
+                  <p className="mt-3 line-clamp-3 text-sm text-slate-400">
+                    {movie.moTa || "Chưa có mô tả chi tiết."}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {movie.hot && (
+                      <span className="rounded-full border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-xs font-medium text-rose-300">
+                        Hot
+                      </span>
+                    )}
+                    {movie.sapChieu && (
+                      <span className="rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-300">
+                        Sắp chiếu
+                      </span>
+                    )}
+                    {!movie.hot && !movie.sapChieu && (
+                      <span className="rounded-full border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-xs font-medium text-slate-400">
+                        Đang chiếu
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-slate-500">
+                      Khởi chiếu: {new Date(movie.ngayKhoiChieu).toLocaleDateString("vi-VN")}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2 opacity-0 transition group-hover:opacity-100 md:opacity-100">
+                    <button
+                      onClick={() => navigate(`/admin/films/edit/${movie.maPhim}`)}
+                      className="rounded-xl bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700"
+                    >
+                      Sửa
+                    </button>
+                    <button
+                      onClick={() => navigate(`/admin/films/showtime/${movie.maPhim}`)}
+                      className="rounded-xl bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-700"
+                    >
+                      Tạo lịch chiếu
+                    </button>
+                    <button
+                      onClick={() => handleDeleteMovie(movie.maPhim, movie.tenPhim)}
+                      className="rounded-xl bg-rose-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-rose-700"
+                    >
+                      Xóa
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="rounded-3xl border border-dashed border-slate-800 bg-slate-950/50 p-8 text-center text-slate-400 xl:col-span-2">
+            Không tìm thấy phim phù hợp.
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-center gap-2">
         <button
           onClick={() => setCurrentPage((p) => p - 1)}
           disabled={currentPage === 1}
-          className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
+          className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
           ← Trước
         </button>
@@ -277,10 +293,8 @@ const FilmPage = () => {
           <button
             key={page}
             onClick={() => setCurrentPage(page)}
-            className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-              page === currentPage
-                ? "bg-yellow-400 text-gray-900"
-                : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+            className={`h-9 w-9 rounded-xl text-sm font-medium transition ${
+              page === currentPage ? "bg-amber-400 text-slate-950" : "bg-slate-900 text-slate-300 hover:bg-slate-800"
             }`}
           >
             {page}
@@ -290,188 +304,92 @@ const FilmPage = () => {
         <button
           onClick={() => setCurrentPage((p) => p + 1)}
           disabled={currentPage === totalPages}
-          className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-sm"
+          className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Sau →
         </button>
       </div>
 
-      {/* Modal thêm phim */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="bg-gray-900 rounded-2xl border border-gray-800 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800 sticky top-0 bg-gray-900">
-              <h3 className="text-white text-lg font-bold">
-                Thêm phim mới
-              </h3>
-              <button
-                onClick={handleCloseModal}
-                className="text-gray-500 hover:text-white transition-colors text-xl leading-none"
-              >
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 px-4">
+          <div className="w-full max-w-2xl overflow-y-auto rounded-3xl border border-slate-800 bg-slate-950 shadow-2xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-800 bg-slate-950/90 px-6 py-5">
+              <div>
+                <h3 className="text-lg font-semibold text-white">Thêm phim mới</h3>
+                <p className="text-sm text-slate-400">Điền thông tin để đưa phim vào hệ thống.</p>
+              </div>
+              <button onClick={handleCloseModal} className="text-xl text-slate-400 transition hover:text-white">
                 ×
               </button>
             </div>
 
-            <form
-              onSubmit={formik.handleSubmit}
-              className="px-6 py-5 space-y-4"
-            >
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={formik.handleSubmit} className="space-y-4 px-6 py-5">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Tên phim *
-                  </label>
-                  <input
-                    type="text"
-                    {...formik.getFieldProps("tenPhim")}
-                    placeholder="Nhập tên phim"
-                    className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.tenPhim && formik.errors.tenPhim && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.tenPhim}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Tên phim *</label>
+                  <input type="text" {...formik.getFieldProps("tenPhim")} placeholder="Nhập tên phim" className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                  {formik.touched.tenPhim && formik.errors.tenPhim && <p className="mt-1 text-xs text-rose-400">{formik.errors.tenPhim}</p>}
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Bí danh *
-                  </label>
-                  <input
-                    type="text"
-                    {...formik.getFieldProps("biDanh")}
-                    placeholder="Nhập bí danh"
-                    className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.biDanh && formik.errors.biDanh && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.biDanh}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Bí danh *</label>
+                  <input type="text" {...formik.getFieldProps("biDanh")} placeholder="Nhập bí danh" className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                  {formik.touched.biDanh && formik.errors.biDanh && <p className="mt-1 text-xs text-rose-400">{formik.errors.biDanh}</p>}
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                  Mô tả *
-                </label>
-                <textarea
-                  {...formik.getFieldProps("moTa")}
-                  placeholder="Nhập mô tả phim"
-                  rows="3"
-                  className="w-full bg-gray-800 text-white placeholder-gray-500 border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm resize-none"
-                />
-                {formik.touched.moTa && formik.errors.moTa && (
-                  <p className="text-red-500 text-xs mt-1">
-                    {formik.errors.moTa}
-                  </p>
-                )}
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Mô tả *</label>
+                <textarea {...formik.getFieldProps("moTa")} placeholder="Nhập mô tả phim" rows="3" className="w-full resize-none rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                {formik.touched.moTa && formik.errors.moTa && <p className="mt-1 text-xs text-rose-400">{formik.errors.moTa}</p>}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Ngày khởi chiếu *
-                  </label>
-                  <input
-                    type="date"
-                    {...formik.getFieldProps("ngayKhoiChieu")}
-                    className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.ngayKhoiChieu && formik.errors.ngayKhoiChieu && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.ngayKhoiChieu}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Ngày khởi chiếu *</label>
+                  <input type="date" {...formik.getFieldProps("ngayKhoiChieu")} className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                  {formik.touched.ngayKhoiChieu && formik.errors.ngayKhoiChieu && <p className="mt-1 text-xs text-rose-400">{formik.errors.ngayKhoiChieu}</p>}
                 </div>
                 <div>
-                  <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                    Đánh giá (0-10) *
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    {...formik.getFieldProps("danhGia")}
-                    className="w-full bg-gray-800 text-white border border-gray-700 rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-yellow-400 text-sm"
-                  />
-                  {formik.touched.danhGia && formik.errors.danhGia && (
-                    <p className="text-red-500 text-xs mt-1">
-                      {formik.errors.danhGia}
-                    </p>
-                  )}
+                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Đánh giá (0-10) *</label>
+                  <input type="number" min="0" max="10" {...formik.getFieldProps("danhGia")} className="w-full rounded-2xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-400" />
+                  {formik.touched.danhGia && formik.errors.danhGia && <p className="mt-1 text-xs text-rose-400">{formik.errors.danhGia}</p>}
                 </div>
               </div>
 
               <div>
-                <label className="block text-gray-400 text-xs font-medium mb-1.5">
-                  Hình ảnh *
-                </label>
-                <div className="flex gap-4">
-                  <label className="flex-1 border-2 border-dashed border-gray-700 rounded-lg px-4 py-6 cursor-pointer hover:border-yellow-400/50 transition-colors text-center">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageChange}
-                      className="hidden"
-                    />
-                    <div className="text-gray-400 text-sm">
-                      {imagePreview ? (
-                        <span className="text-green-400">✓ Đã chọn hình ảnh</span>
-                      ) : (
-                        <span>Chọn hình ảnh</span>
-                      )}
+                <label className="mb-1.5 block text-xs font-medium uppercase tracking-[0.2em] text-slate-400">Hình ảnh *</label>
+                <div className="flex flex-col gap-4 sm:flex-row">
+                  <label className="flex-1 cursor-pointer rounded-2xl border border-dashed border-slate-700 px-4 py-6 text-center transition hover:border-amber-400/50">
+                    <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                    <div className="text-sm text-slate-400">
+                      {imagePreview ? <span className="text-emerald-400">✓ Đã chọn hình ảnh</span> : <span>Chọn hình ảnh</span>}
                     </div>
                   </label>
                   {imagePreview && (
-                    <div className="w-20 h-28 rounded bg-gray-800 border border-gray-700 flex-shrink-0 overflow-hidden">
-                      <img
-                        src={imagePreview}
-                        alt="preview"
-                        className="w-full h-full object-cover"
-                      />
+                    <div className="h-28 w-20 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+                      <img src={imagePreview} alt="preview" className="h-full w-full object-cover" />
                     </div>
                   )}
                 </div>
-                {formik.touched.hinhAnh && formik.errors.hinhAnh && (
-                  <p className="text-red-500 text-xs mt-1">
-                    {formik.errors.hinhAnh}
-                  </p>
-                )}
+                {formik.touched.hinhAnh && formik.errors.hinhAnh && <p className="mt-1 text-xs text-rose-400">{formik.errors.hinhAnh}</p>}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    {...formik.getFieldProps("hot")}
-                    className="w-4 h-4 rounded bg-gray-700 border border-gray-600"
-                  />
-                  <span className="text-gray-300 text-sm">Phim hot</span>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-sm text-slate-300">
+                  <input type="checkbox" {...formik.getFieldProps("hot")} className="h-4 w-4 rounded border-slate-600 bg-slate-800" />
+                  <span>Phim hot</span>
                 </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    {...formik.getFieldProps("sapChieu")}
-                    className="w-4 h-4 rounded bg-gray-700 border border-gray-600"
-                  />
-                  <span className="text-gray-300 text-sm">Sắp chiếu</span>
+                <label className="flex items-center gap-2 rounded-2xl border border-slate-800 bg-slate-900/70 px-3 py-3 text-sm text-slate-300">
+                  <input type="checkbox" {...formik.getFieldProps("sapChieu")} className="h-4 w-4 rounded border-slate-600 bg-slate-800" />
+                  <span>Sắp chiếu</span>
                 </label>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t border-gray-800">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  className="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 transition-colors"
-                >
+              <div className="flex justify-end gap-3 border-t border-slate-800 pt-4">
+                <button type="button" onClick={handleCloseModal} className="rounded-2xl border border-slate-700 px-5 py-2.5 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-white">
                   Hủy
                 </button>
-                <button
-                  type="submit"
-                  disabled={!formik.isValid || addMovie.isPending}
-                  className="bg-yellow-400 hover:bg-yellow-500 disabled:bg-yellow-700 text-gray-900 font-bold px-5 py-2.5 rounded-xl text-sm transition-colors flex items-center gap-2"
-                >
+                <button type="submit" disabled={!formik.isValid || addMovie.isPending} className="rounded-2xl bg-gradient-to-r from-amber-400 to-yellow-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:brightness-110 disabled:cursor-not-allowed disabled:brightness-75">
                   {addMovie.isPending ? "Đang thêm..." : "Thêm phim"}
                 </button>
               </div>

@@ -10,4 +10,10 @@ export const userApi = {
     addUser: (userData) => {
         return axiosInstance.post('/QuanLyNguoiDung/ThemNguoiDung', userData)
     },
+    updateUser: (userData) => {
+        return axiosInstance.post('/QuanLyNguoiDung/CapNhatThongTinNguoiDung', userData)
+    },
+    deleteUser: (taiKhoan) => {
+        return axiosInstance.delete(`/QuanLyNguoiDung/XoaNguoiDung?TaiKhoan=${taiKhoan}`)
+    },
 }

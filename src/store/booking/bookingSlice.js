@@ -56,6 +56,36 @@ const bookingSlice = createSlice({
         });
       });
 
+      // Prepare booking record to store in localStorage booking history
+      try {
+        const bookingInfo = state.thongTinPhim || {};
+        const bookedSeats = state.gheKhachChon.map((s) => ({ ...s }));
+        const total = bookedSeats.reduce((sum, s) => sum + (s.gia || 0), 0);
+
+        const ticket = {
+          id: `bk_${Date.now()}`,
+          maPhim: bookingInfo.maPhim || null,
+          tenPhim: bookingInfo.tenPhim || "",
+          tenCumRap: bookingInfo.tenCumRap || bookingInfo.tenRap || "",
+          tenRap: bookingInfo.tenRap || "",
+          ngayChieu: bookingInfo.ngayChieu || new Date().toLocaleDateString(),
+          gioChieu: bookingInfo.gioChieu || new Date().toLocaleTimeString(),
+          hinhAnh: bookingInfo.hinhAnh || null,
+          maVe: `#${Math.floor(Math.random() * 900000) + 100000}`,
+          seats: bookedSeats,
+          total,
+          createdAt: new Date().toISOString(),
+        };
+
+        const key = "bookingHistory";
+        const raw = localStorage.getItem(key);
+        const arr = raw ? JSON.parse(raw) : [];
+        arr.unshift(ticket);
+        localStorage.setItem(key, JSON.stringify(arr));
+      } catch (err) {
+        // ignore localStorage errors
+      }
+
       state.gheKhachChon = [];
     },
 

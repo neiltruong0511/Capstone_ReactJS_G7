@@ -14,6 +14,9 @@ import ProfilePage from "./pages/ProfilePage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ProtectedAdminRoute from "./components/ProtectedAdminRoute";
 import FilmPage from "./pages/admin/FilmPage";
+import AddFilmPage from "./pages/Admin/AddFilmPage";
+import EditFilmPage from "./pages/Admin/EditFilmPage";
+import FilmShowtimePage from "./pages/Admin/FilmShowtimePage";
 import BookingPage from "./pages/BookingPage";
 import ShowtimesPage from "./pages/Admin/ShowtimesPage";
 import TicketPage from "./pages/TicketPage";
@@ -72,6 +75,9 @@ function App() {
               <Route index element={<UserPage />} />
               <Route path="users" element={<UserPage />} />
               <Route path="films" element={<FilmPage />} />
+              <Route path="films/addnew" element={<AddFilmPage />} />
+              <Route path="films/edit/:idFilm" element={<EditFilmPage />} />
+              <Route path="films/showtime/:idFilm" element={<FilmShowtimePage />} />
               <Route path="showtimes" element={<ShowtimesPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
