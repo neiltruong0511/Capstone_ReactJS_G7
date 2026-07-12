@@ -8,6 +8,7 @@ export const userApi = {
         return axiosInstance.post('/QuanLyNguoiDung/ThongTinTaiKhoan')
     },
     addUser: (userData) => {
+        console.log("userData:", userData);
         return axiosInstance.post('/QuanLyNguoiDung/ThemNguoiDung', userData)
     },
     updateUser: (userData) => {
