@@ -21,6 +21,7 @@ import BookingPage from "./pages/BookingPage";
 import ShowtimesPage from "./pages/Admin/ShowtimesPage";
 import TicketPage from "./pages/TicketPage";
 import TicketDetailPage from "./pages/TicketDetailPage";
+import RegisterPage from "./pages/RegisterPage";
 
 // cài đặt query client ở ngoài App để tất cả các component, page
 // đều có thể sử dụng được
@@ -44,6 +45,7 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
             <Route path="/" element={<HomeLayout />}>
               <Route index element={<MovieListPage />} />
               <Route path="movie" element={<MovieListPage />} />

@@ -100,6 +100,13 @@ const Header = () => {
                 </Link>
 
                 <Link
+                  to="/register"
+                  className="border border-red-500 text-red-400 hover:bg-red-500 hover:text-white px-4 py-2 rounded-lg text-sm"
+                >
+                  Đăng ký
+                </Link>
+
+                <Link
                   to="/login"
                   className="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-sm text-white"
                 >
@@ -149,6 +156,13 @@ const Header = () => {
               </>
             ) : (
               <>
+                <Link
+                  to="/register"
+                  className="block border border-yellow-400 text-yellow-400 px-4 py-2 rounded-lg text-center mb-2"
+                >
+                  Đăng ký
+                </Link>
+
                 <Link
                   to="/login"
                   className="block bg-yellow-400 text-black px-4 py-2 rounded-lg text-center"
