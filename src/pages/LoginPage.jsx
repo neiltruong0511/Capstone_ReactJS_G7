@@ -1,6 +1,6 @@
 import { useFormik } from "formik";
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import * as Yup from "yup";
 import { authApi } from "../api/authApi";
 import { useDispatch } from "react-redux";
@@ -154,12 +154,12 @@ const LoginPage = () => {
           {/* Bottom */}
           <p className="text-center text-gray-400 text-sm mt-8">
             Chưa có tài khoản?
-            <a
-              href="/"
+            <Link
+              to="/register"
               className="text-red-400 hover:text-red-500 font-semibold ml-2"
             >
-              Khám phá phim ngay
-            </a>
+              Đăng ký ngay
+            </Link>
           </p>
         </div>
       </div>

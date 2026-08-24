@@ -26,7 +26,7 @@ axiosInstance.interceptors.request.use((config) => {
         config.headers.Authorization = `Bearer ${accessToken}`
     }
 
-    // B3: Trả về config đã chỉnh sửa để request gửi về API
+    // B3: Trả về config đã chỉnh sửa để request gửi về API nếu có token
     return config
 })
 
